@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from easy_social import create_app
+from easy_social.captcha import CAPTCHA_SESSION_KEY
 from easy_social.extensions import db
 
 
@@ -19,6 +20,7 @@ def app():
                 "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
                 "UPLOAD_FOLDER": str(Path(temp_dir) / "uploads"),
                 "MEDIA_STORAGE_BACKEND": "local",
+                "CAPTCHA_FIXED_TEXT": "TEST42",
                 "WTF_CSRF_ENABLED": False,
             }
         )
@@ -33,12 +35,17 @@ def client(app):
 
 
 def register(client, username: str, email: str | None = None, password: str = "password"):
+    client.get("/auth/register")
+    client.get("/auth/captcha.svg")
+    with client.session_transaction() as session:
+        captcha = session[CAPTCHA_SESSION_KEY]
     return client.post(
         "/auth/register",
         data={
             "username": username,
             "email": email or f"{username}@example.com",
             "password": password,
+            "captcha": captcha,
         },
         follow_redirects=True,
     )

@@ -75,6 +75,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         SUPABASE_URL=os.environ.get("SUPABASE_URL"),
         SUPABASE_SERVICE_ROLE_KEY=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
         SUPABASE_STORAGE_BUCKET=os.environ.get("SUPABASE_STORAGE_BUCKET", "easy-social-media"),
+        CAPTCHA_FIXED_TEXT=os.environ.get("CAPTCHA_FIXED_TEXT"),
     )
 
     if test_config:

@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import event
 
 from easy_social.extensions import db
-from easy_social.models import Comment, Post, User
+from easy_social.models import Comment, PollOption, PollVote, Post, User
 from scripts.import_fake_data import DEFAULT_DATA_DIR, import_fake_data
 
 from conftest import login, logout, register
@@ -48,6 +48,80 @@ def test_register_login_and_create_text_post(client, app):
         post = Post.query.filter_by(author_id=user.id).one()
         assert post.body == "Hello world"
         assert post.media_filename is None
+
+
+def test_create_poll_post_and_vote(client, app):
+    register(client, "alice")
+    response = client.post(
+        "/posts",
+        data={
+            "body": "Favorite color?",
+            "poll_options": ["Red", "Blue", "", "Red"],
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Favorite color?" in response.data
+    assert b"Red" in response.data
+    assert b"Blue" in response.data
+
+    with app.app_context():
+        post = Post.query.filter_by(body="Favorite color?").one()
+        options = list(post.poll_options)
+        assert [option.body for option in options] == ["Red", "Blue"]
+        blue_id = options[1].id
+
+    response = client.post(
+        f"/posts/{post.id}/poll",
+        data={"option_id": blue_id},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"100%" in response.data
+    assert b"your vote" in response.data
+    with app.app_context():
+        assert PollVote.query.count() == 1
+
+
+def test_poll_rejects_duplicate_vote(client, app):
+    register(client, "alice")
+    client.post(
+        "/posts",
+        data={"body": "Pick one", "poll_options": ["One", "Two"]},
+        follow_redirects=True,
+    )
+
+    with app.app_context():
+        post = Post.query.filter_by(body="Pick one").one()
+        option = post.poll_options[0]
+        option_id = option.id
+
+    client.post(f"/posts/{post.id}/poll", data={"option_id": option_id}, follow_redirects=True)
+    response = client.post(
+        f"/posts/{post.id}/poll",
+        data={"option_id": option_id},
+        follow_redirects=True,
+    )
+
+    assert b"You already voted in this poll." in response.data
+    with app.app_context():
+        assert PollVote.query.count() == 1
+
+
+def test_poll_requires_two_unique_options(client, app):
+    register(client, "alice")
+
+    response = client.post(
+        "/posts",
+        data={"body": "Invalid poll", "poll_options": ["Same", "same"]},
+        follow_redirects=True,
+    )
+
+    assert b"Poll posts need at least two unique options." in response.data
+    with app.app_context():
+        assert PollOption.query.count() == 0
 
 
 def test_create_image_post(client, app):

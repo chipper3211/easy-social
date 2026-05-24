@@ -10,7 +10,7 @@ from werkzeug.serving import make_server
 
 from easy_social import create_app
 from easy_social.extensions import db
-from easy_social.models import Comment, Post, User
+from easy_social.models import Comment, PollVote, Post, User
 
 selenium = pytest.importorskip("selenium")
 
@@ -89,6 +89,7 @@ def browser():
 def clean_database(ui_app):
     with ui_app.app_context():
         db.session.query(Comment).delete()
+        db.session.query(PollVote).delete()
         db.session.query(Post).delete()
         db.session.query(User).delete()
         db.session.commit()
@@ -219,6 +220,25 @@ def test_user_can_register_create_post_and_comment(browser, live_server):
     set_field_value(browser, comment_form.find_element(By.NAME, "body"), "First UI comment")
     submit_form(browser, comment_form)
     wait_for_text(browser, "First UI comment")
+
+
+@pytest.mark.ui
+def test_user_can_create_and_vote_on_poll(browser, live_server):
+    register_via_ui(browser, live_server, "poller")
+
+    composer = browser.find_element(By.CSS_SELECTOR, "form.composer")
+    set_field_value(browser, composer.find_element(By.NAME, "body"), "Best snack?")
+    poll_inputs = composer.find_elements(By.NAME, "poll_options")
+    set_field_value(browser, poll_inputs[0], "Chips")
+    set_field_value(browser, poll_inputs[1], "Fruit")
+    submit_form(browser, composer)
+
+    wait_for_text(browser, "Best snack?")
+    wait_for_text(browser, "Chips")
+    browser.find_element(By.XPATH, "//button[normalize-space()='Fruit']").click()
+
+    wait_for_text(browser, "100%")
+    wait_for_text(browser, "your vote")
 
 
 @pytest.mark.ui

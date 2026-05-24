@@ -238,6 +238,21 @@ button.secondary {
   white-space: nowrap;
 }
 
+.poll-composer {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+}
+
+.poll-composer legend {
+  color: var(--muted);
+  font-weight: 800;
+  padding: 0 6px;
+}
+
 .composer-actions,
 .post-actions,
 .profile-header,
@@ -300,6 +315,48 @@ button.secondary {
   max-width: 100%;
   object-fit: contain;
   width: 100%;
+}
+
+.poll {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.poll-options,
+.poll-result {
+  display: grid;
+  gap: 8px;
+}
+
+.poll-result {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.poll-result.selected {
+  border-color: var(--accent);
+}
+
+.poll-result-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.poll-meter {
+  background: #eef1f4;
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.poll-meter span {
+  background: var(--accent);
+  display: block;
+  height: 100%;
 }
 
 .post-actions {

@@ -7,7 +7,15 @@ from sqlalchemy.orm import joinedload
 
 from .extensions import db
 from .media import save_media
-from .models import Comment, Post, User, followers
+from .models import Comment, PollOption, PollVote, Post, User, followers
+from .polls import (
+    PollOptionResult,
+    PollResult,
+    add_poll_options,
+    normalize_poll_options,
+    poll_result,
+    validate_poll_options,
+)
 
 bp = Blueprint("social", __name__)
 
@@ -33,6 +41,54 @@ def _comment_counts_for_posts(posts: list[Post]) -> dict[int, int]:
     )
     counts.update({post_id: count for post_id, count in rows})
     return counts
+
+
+def _poll_results_for_posts(posts: list[Post]) -> dict[int, object]:
+    poll_posts = {post.display_post.id: post.display_post for post in posts if post.display_post.is_poll}
+    if not poll_posts:
+        return {}
+
+    post_ids = list(poll_posts)
+    vote_counts = {
+        option.id: 0
+        for post in poll_posts.values()
+        for option in post.poll_options
+    }
+    rows = (
+        db.session.query(PollVote.option_id, func.count(PollVote.id))
+        .filter(PollVote.post_id.in_(post_ids))
+        .group_by(PollVote.option_id)
+        .all()
+    )
+    vote_counts.update({option_id: count for option_id, count in rows})
+    user_votes = {
+        post_id: option_id
+        for post_id, option_id in db.session.query(PollVote.post_id, PollVote.option_id)
+        .filter(PollVote.post_id.in_(post_ids), PollVote.user_id == current_user.id)
+        .all()
+    }
+
+    results: dict[int, PollResult] = {}
+    for post_id, post in poll_posts.items():
+        total_votes = sum(vote_counts[option.id] for option in post.poll_options)
+        user_vote_option_id = user_votes.get(post_id)
+        option_results = [
+            PollOptionResult(
+                option=option,
+                votes=vote_counts[option.id],
+                percentage=round((vote_counts[option.id] / total_votes) * 100)
+                if total_votes
+                else 0,
+                selected=option.id == user_vote_option_id,
+            )
+            for option in post.poll_options
+        ]
+        results[post_id] = PollResult(
+            total_votes=total_votes,
+            user_vote_option_id=user_vote_option_id,
+            options=option_results,
+        )
+    return results
 
 
 def _followed_user_ids(users: list[User]) -> set[int]:
@@ -68,6 +124,7 @@ def feed():
         "social/feed.html",
         posts=posts,
         comment_counts=_comment_counts_for_posts(posts),
+        poll_results=_poll_results_for_posts(posts),
     )
 
 
@@ -82,6 +139,7 @@ def explore():
         users=users,
         comment_counts=_comment_counts_for_posts(posts),
         followed_user_ids=_followed_user_ids(users),
+        poll_results=_poll_results_for_posts(posts),
     )
 
 
@@ -89,6 +147,7 @@ def explore():
 @login_required
 def create_post():
     body = request.form.get("body", "").strip()
+    poll_options = normalize_poll_options(request.form.getlist("poll_options"))
 
     try:
         media_filename, media_type = save_media(request.files.get("media"))
@@ -96,8 +155,13 @@ def create_post():
         flash(str(exc), "error")
         return redirect(request.referrer or url_for("social.feed"))
 
-    if not body and not media_filename:
-        flash("Add text, an image, or a video before posting.", "error")
+    poll_error = validate_poll_options(poll_options)
+    if poll_error:
+        flash(poll_error, "error")
+        return redirect(request.referrer or url_for("social.feed"))
+
+    if not body and not media_filename and not poll_options:
+        flash("Add text, an image, a video, or poll options before posting.", "error")
         return redirect(request.referrer or url_for("social.feed"))
 
     post = Post(
@@ -107,6 +171,7 @@ def create_post():
         author=current_user,
     )
     db.session.add(post)
+    add_poll_options(post, poll_options)
     db.session.commit()
     return redirect(url_for("social.feed"))
 
@@ -121,7 +186,29 @@ def post_detail(post_id: int):
         post=post,
         comments=comments,
         comment_counts={post.display_post.id: len(comments)},
+        poll_results={post.display_post.id: poll_result(post, current_user.id)},
     )
+
+
+@bp.post("/posts/<int:post_id>/poll")
+@login_required
+def vote_poll(post_id: int):
+    post = db.get_or_404(Post, post_id).display_post
+    option_id = request.form.get("option_id", type=int)
+    option = PollOption.query.filter_by(id=option_id, post_id=post.id).first()
+
+    if not option:
+        flash("Choose a valid poll option.", "error")
+        return redirect(request.referrer or url_for("social.post_detail", post_id=post.id))
+
+    existing = PollVote.query.filter_by(post_id=post.id, user_id=current_user.id).first()
+    if existing:
+        flash("You already voted in this poll.", "error")
+        return redirect(request.referrer or url_for("social.post_detail", post_id=post.id))
+
+    db.session.add(PollVote(post=post, option=option, user=current_user))
+    db.session.commit()
+    return redirect(request.referrer or url_for("social.post_detail", post_id=post.id))
 
 
 @bp.post("/posts/<int:post_id>/comments")
@@ -170,6 +257,7 @@ def profile(username: str):
         profile_user=user,
         posts=posts,
         comment_counts=_comment_counts_for_posts(posts),
+        poll_results=_poll_results_for_posts(posts),
     )
 
 

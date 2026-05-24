@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 import pytest
 
 from easy_social.extensions import db
-from easy_social.models import Post, User
+from easy_social.models import PollOption, PollVote, Post, User
 
 pytestmark = pytest.mark.unit
 
@@ -90,3 +90,24 @@ def test_repost_display_post_points_to_original(app):
         assert original.display_post == original
         assert repost.is_repost
         assert repost.display_post == original
+
+
+def test_poll_vote_allows_one_vote_per_user_per_post(app):
+    with app.app_context():
+        alice = make_user("alice")
+        post = Post(author=alice, body="Favorite color?")
+        red = PollOption(post=post, body="Red", position=1)
+        blue = PollOption(post=post, body="Blue", position=2)
+        db.session.add_all([alice, post, red, blue])
+        db.session.commit()
+
+        db.session.add(PollVote(post=post, option=red, user=alice))
+        db.session.commit()
+        db.session.add(PollVote(post=post, option=blue, user=alice))
+
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+        else:
+            raise AssertionError("duplicate poll vote should violate uniqueness")

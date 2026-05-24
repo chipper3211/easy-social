@@ -32,12 +32,16 @@ def ui_app():
                 "SQLALCHEMY_DATABASE_URI": f"sqlite:///{temp_path / 'ui.sqlite'}",
                 "UPLOAD_FOLDER": str(temp_path / "uploads"),
                 "MEDIA_STORAGE_BACKEND": "local",
+                "CAPTCHA_FIXED_TEXT": "TEST42",
                 "WTF_CSRF_ENABLED": False,
             }
         )
         with app.app_context():
             db.create_all()
         yield app
+        with app.app_context():
+            db.session.remove()
+            db.engine.dispose()
 
 
 @pytest.fixture(scope="module")
@@ -125,9 +129,15 @@ def register_via_ui(browser, live_server: str, username: str):
     form = WebDriverWait(browser, 10).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, "form.form-stack"))
     )
+    WebDriverWait(browser, 10).until(
+        lambda _: browser.execute_script(
+            "const image = document.querySelector('.captcha-image'); return image && image.complete;"
+        )
+    )
     set_field_value(browser, form.find_element(By.NAME, "username"), username)
     set_field_value(browser, form.find_element(By.NAME, "email"), f"{username}@example.com")
     set_field_value(browser, form.find_element(By.NAME, "password"), "password")
+    set_field_value(browser, form.find_element(By.NAME, "captcha"), "TEST42")
     submit_form(browser, form)
     wait_for_feed(browser)
 
@@ -170,6 +180,27 @@ def test_composer_shows_media_preview_before_posting(
     preview.find_element(By.CSS_SELECTOR, "[data-media-preview-clear]").click()
     WebDriverWait(browser, 5).until(lambda _: not preview.is_displayed())
     assert media_input.get_attribute("value") == ""
+
+
+@pytest.mark.ui
+def test_register_blocks_invalid_captcha(browser, live_server):
+    browser.get(f"{live_server}/auth/register")
+    form = WebDriverWait(browser, 10).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "form.form-stack"))
+    )
+    WebDriverWait(browser, 10).until(
+        lambda _: browser.execute_script(
+            "const image = document.querySelector('.captcha-image'); return image && image.complete;"
+        )
+    )
+    set_field_value(browser, form.find_element(By.NAME, "username"), "bot")
+    set_field_value(browser, form.find_element(By.NAME, "email"), "bot@example.com")
+    set_field_value(browser, form.find_element(By.NAME, "password"), "password")
+    set_field_value(browser, form.find_element(By.NAME, "captcha"), "WRONG")
+    submit_form(browser, form)
+
+    wait_for_text(browser, "CAPTCHA verification failed")
+    assert browser.find_element(By.NAME, "captcha").is_displayed()
 
 
 @pytest.mark.ui

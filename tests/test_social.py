@@ -14,6 +14,27 @@ from conftest import login, logout, register
 pytestmark = pytest.mark.integration
 
 
+def test_register_requires_valid_captcha(client, app):
+    client.get("/auth/register")
+    client.get("/auth/captcha.svg")
+
+    response = client.post(
+        "/auth/register",
+        data={
+            "username": "bot",
+            "email": "bot@example.com",
+            "password": "password",
+            "captcha": "WRONG",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"CAPTCHA verification failed" in response.data
+    with app.app_context():
+        assert User.query.filter_by(username="bot").first() is None
+
+
 def test_register_login_and_create_text_post(client, app):
     response = register(client, "alice")
 

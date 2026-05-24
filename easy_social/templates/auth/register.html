@@ -16,6 +16,17 @@
         Password
         <input name="password" type="password" autocomplete="new-password" required>
       </label>
+      <label>
+        CAPTCHA
+        <img
+          class="captcha-image"
+          src="{{ url_for('auth.captcha_image') }}"
+          alt="CAPTCHA challenge"
+          width="180"
+          height="64"
+        >
+        <input name="captcha" autocomplete="off" inputmode="latin" required>
+      </label>
       <button type="submit">Register</button>
     </form>
     <p class="muted">Already registered? <a href="{{ url_for('auth.login') }}">Log in</a>.</p>
